@@ -309,6 +309,21 @@ function DoLDAPBind($ldapConn)
 	return ldap_bind($ldapConn, $content['LDAPBindDN'], $content['LDAPBindPassword']); 
 }
 
+//   
+//  Addedd by czhujer   
+//   
+function LdapCheckGroup($ad, $userdn, $groupdn) {   
+          
+        $attributes = array('members');   
+        $result = ldap_read($ad, $userdn, "(memberof={$groupdn})", $attributes);   
+        if ($result === FALSE) { return FALSE; };   
+        $entries = ldap_get_entries($ad, $result);   
+
+        return ($entries['count'] > 0);   
+          
+}  
+//end   
+
 function CheckLDAPUserLogin( $username, $password )
 {
 	global $content;
@@ -385,6 +400,33 @@ function CheckLDAPUserLogin( $username, $password )
 	// for the moment when a user logs in from LDAP, create it in the DB.
 	// then the prefs and group management is done in the DB and we don't rewrite the whole Loganalyzer code…
 
+	//   
+        // added by czhujer   
+        //   
+              
+        $ldapadmingroup = "cn=loganalyzeradminusers,cn=groups,cn=accounts,dc=someorg,dc=en";   
+          
+        if (LdapCheckGroup($ldapConn, $info[0]['dn'], $ldapadmingroup)) {   
+            $ldapuser_is_admin = 1;   
+            $ldapuser_is_readonly = 0;   
+            //echo "You're (".$info[0]['dn'].") member of \"".$ldapadmingroup."\"";   
+        } else {   
+            //echo "You're (".$info[0]['dn'].") not member of \"".$ldapadmingroup."\"";   
+            $ldapuser_admin = 0;   
+            $ldapuser_is_readonly = 1;   
+        }  
+          
+        /* debug   
+        echo "<pre>";  
+        print_r($info);  
+        echo "</pre>";  
+        DebugLDAPErrorAndDie("" , $ldap_filter );   
+        */   
+          
+        //   
+        // end of czhujer modify   
+        //   
+
 	/* DB_RemoveBadChars() needs to be done here to maintain backwards compatibility even if it is not needed here*/
 	$md5pass = md5(DB_RemoveBadChars($password)); 
 
@@ -395,8 +437,12 @@ function CheckLDAPUserLogin( $username, $password )
 	if (!isset($myrow['is_admin']) )
 	{
 		// Create User | use password to create MD5 Hash, so technically the user could login without LDAP as well
-		$sqlcmd = "INSERT INTO `" . DB_USERS . "` (username, password, is_admin, is_readonly) VALUES ('" . $username . "', '" . $md5pass . "', 0, 1)"; 
+		//$sqlcmd = "INSERT INTO `" . DB_USERS . "` (username, password, is_admin, is_readonly) VALUES ('" . $username . "', '" . $md5pass . "', 0, 1)"; 
 
+		//modified by czhujer   
+                $sqlcmd = "INSERT INTO `" . DB_USERS . "` (username, password, is_admin, is_readonly) VALUES ".   
+                                   "('" . $username . "', '" . $md5pass . "', ".intval($ldapuser_is_admin).", ".intval($ldapuser_is_readonly).")";   
+                                   
 		$result = DB_Query($sqlcmd);
 		DB_FreeQuery($result);
 		$myrow['is_admin'] = 0;
@@ -444,6 +490,11 @@ function DoLogOff()
 {
 	global $content;
 
+	//added by czhujer  
+        $sqlquery="DELETE FROM `logcon_users` WHERE `username` LIKE '".$_SESSION['SESSION_USERNAME']."'";   
+        $result = DB_Query($sqlquery);   
+        //end   
+               
 	unset( $_SESSION['SESSION_LOGGEDIN'] );
 	unset( $_SESSION['SESSION_USERNAME'] );
 	unset( $_SESSION['SESSION_USERID'] );
